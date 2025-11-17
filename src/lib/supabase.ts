@@ -1,70 +1,34 @@
 import { createClient } from '@supabase/supabase-js';
 import type { City, IncidentReport } from '../data/cities-expanded';
 
-// Supabase client configuration
-// Check if environment variables are defined
-const supabaseUrl = typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_SUPABASE_URL : undefined;
-const supabaseAnonKey = typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_SUPABASE_ANON_KEY : undefined;
+// Supabase config
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Helper to check if Supabase is configured
 export const isSupabaseConfigured = !!supabaseUrl && !!supabaseAnonKey;
 
-// Create a dummy client if env vars are not set (app will use local data)
-export const supabase = isSupabaseConfigured 
-  ? createClient(supabaseUrl!, supabaseAnonKey!)
+export const supabase = isSupabaseConfigured
+  ? createClient(supabaseUrl, supabaseAnonKey)
   : createClient('https://placeholder.supabase.co', 'placeholder-key');
 
-// Database types
-export interface Database {
-  public: {
-    Tables: {
-      cities: {
-        Row: City;
-        Insert: Omit<City, 'id'>;
-        Update: Partial<Omit<City, 'id'>>;
-      };
-      incident_reports: {
-        Row: IncidentReport & {
-          user_id?: string;
-          created_at: string;
-        };
-        Insert: Omit<IncidentReport, 'id'> & {
-          user_id?: string;
-        };
-        Update: Partial<Omit<IncidentReport, 'id'>>;
-      };
-    };
-  };
-}
-
-// City operations
+// ---------- CITY OPERATIONS ----------
 export const cityOperations = {
   // Get all cities
   async getAll(): Promise<City[]> {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Using local data.');
-      return [];
-    }
+    if (!isSupabaseConfigured) return [];
 
     const { data, error } = await supabase
       .from('cities')
       .select('*')
-      .order('safetyScore', { ascending: false });
+      .order('safety_score', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching cities:', error);
-      throw error;
-    }
-
+    if (error) throw error;
     return data || [];
   },
 
-  // Get city by ID
+  // Get by ID
   async getById(id: number): Promise<City | null> {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Using local data.');
-      return null;
-    }
+    if (!isSupabaseConfigured) return null;
 
     const { data, error } = await supabase
       .from('cities')
@@ -72,105 +36,82 @@ export const cityOperations = {
       .eq('id', id)
       .single();
 
-    if (error) {
-      console.error('Error fetching city:', error);
-      return null;
-    }
-
-    return data;
+    return error ? null : data;
   },
 
-  // Search cities
+  // Search
   async search(query: string): Promise<City[]> {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Using local data.');
-      return [];
-    }
+    if (!isSupabaseConfigured) return [];
 
     const { data, error } = await supabase
       .from('cities')
       .select('*')
       .or(`city.ilike.%${query}%,state.ilike.%${query}%`);
 
-    if (error) {
-      console.error('Error searching cities:', error);
-      throw error;
-    }
-
+    if (error) throw error;
     return data || [];
   },
 
-  // Filter cities
+  // Filter
   async filter(filters: {
     states?: string[];
     minSafetyScore?: number;
     maxSafetyScore?: number;
     budgetLevels?: string[];
   }): Promise<City[]> {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Using local data.');
-      return [];
-    }
+    if (!isSupabaseConfigured) return [];
 
     let query = supabase.from('cities').select('*');
 
-    if (filters.states && filters.states.length > 0) {
+    if (filters.states?.length) {
       query = query.in('state', filters.states);
     }
 
     if (filters.minSafetyScore !== undefined) {
-      query = query.gte('safetyScore', filters.minSafetyScore);
+      query = query.gte('safety_score', filters.minSafetyScore);
     }
 
     if (filters.maxSafetyScore !== undefined) {
-      query = query.lte('safetyScore', filters.maxSafetyScore);
+      query = query.lte('safety_score', filters.maxSafetyScore);
     }
 
-    if (filters.budgetLevels && filters.budgetLevels.length > 0) {
-      query = query.in('budgetLevel', filters.budgetLevels);
+    if (filters.budgetLevels?.length) {
+      query = query.in('budget_level', filters.budgetLevels);
     }
 
     const { data, error } = await query;
-
-    if (error) {
-      console.error('Error filtering cities:', error);
-      throw error;
-    }
+    if (error) throw error;
 
     return data || [];
   },
 
-  // Update city (admin only - secured by RLS)
+  // Update city (admin)
   async update(id: number, updates: Partial<City>): Promise<City | null> {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Cannot update cities.');
-      throw new Error('Supabase not configured');
-    }
+    if (!isSupabaseConfigured) throw new Error('Supabase not configured');
 
     const { data, error } = await supabase
       .from('cities')
-      .update(updates)
+      .update({
+        safety_score: updates.safetyScore,
+        lighting_score: updates.lightingScore,
+        public_transport_score: updates.publicTransportScore,
+        women_review_score: updates.womenReviewScore,
+        crowd_score: updates.crowdScore,
+        budget_level: updates.budgetLevel,
+      })
       .eq('id', id)
       .select()
       .single();
 
-    if (error) {
-      console.error('Error updating city:', error);
-      throw error;
-    }
-
+    if (error) throw error;
     return data;
   }
 };
 
-// Incident report operations
+// ---------- INCIDENT REPORT OPERATIONS ----------
 export const incidentOperations = {
-  // Create incident report
   async create(report: Omit<IncidentReport, 'id'>): Promise<IncidentReport> {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Cannot create incident reports.');
-      throw new Error('Supabase not configured. Please set up Supabase to submit incident reports.');
-    }
+    if (!isSupabaseConfigured) throw new Error('Supabase not configured');
 
     const { data, error } = await supabase
       .from('incident_reports')
@@ -181,20 +122,12 @@ export const incidentOperations = {
       .select()
       .single();
 
-    if (error) {
-      console.error('Error creating incident report:', error);
-      throw error;
-    }
-
+    if (error) throw error;
     return data;
   },
 
-  // Get all incident reports (with pagination)
-  async getAll(limit: number = 10, offset: number = 0): Promise<IncidentReport[]> {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Using local data.');
-      return [];
-    }
+  async getAll(limit = 10, offset = 0): Promise<IncidentReport[]> {
+    if (!isSupabaseConfigured) return [];
 
     const { data, error } = await supabase
       .from('incident_reports')
@@ -202,20 +135,12 @@ export const incidentOperations = {
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
-    if (error) {
-      console.error('Error fetching incident reports:', error);
-      throw error;
-    }
-
+    if (error) throw error;
     return data || [];
   },
 
-  // Get reports by city
   async getByCity(cityName: string): Promise<IncidentReport[]> {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Using local data.');
-      return [];
-    }
+    if (!isSupabaseConfigured) return [];
 
     const { data, error } = await supabase
       .from('incident_reports')
@@ -223,20 +148,12 @@ export const incidentOperations = {
       .eq('city', cityName)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching city reports:', error);
-      throw error;
-    }
-
+    if (error) throw error;
     return data || [];
   },
 
-  // Get recent reports
-  async getRecent(limit: number = 5): Promise<IncidentReport[]> {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Using local data.');
-      return [];
-    }
+  async getRecent(limit = 5): Promise<IncidentReport[]> {
+    if (!isSupabaseConfigured) return [];
 
     const { data, error } = await supabase
       .from('incident_reports')
@@ -244,136 +161,81 @@ export const incidentOperations = {
       .order('created_at', { ascending: false })
       .limit(limit);
 
-    if (error) {
-      console.error('Error fetching recent reports:', error);
-      return [];
-    }
-
+    if (error) return [];
     return data || [];
   },
 
-  // Delete report (user can only delete their own - secured by RLS)
   async delete(id: number): Promise<boolean> {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Cannot delete incident reports.');
-      return false;
-    }
+    if (!isSupabaseConfigured) return false;
 
     const { error } = await supabase
       .from('incident_reports')
       .delete()
       .eq('id', id);
 
-    if (error) {
-      console.error('Error deleting incident report:', error);
-      return false;
-    }
-
-    return true;
+    return !error;
   }
 };
 
-// Analytics operations (read-only, no auth required)
+// ---------- ANALYTICS ----------
 export const analyticsOperations = {
-  // Get safety statistics
   async getStats() {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Using local data.');
-      return null;
-    }
+    if (!isSupabaseConfigured) return null;
 
-    const { data: cities, error } = await supabase
+    const { data, error } = await supabase
       .from('cities')
-      .select('safetyScore, budgetLevel, state');
+      .select('safety_score, budget_level, state');
 
-    if (error) {
-      console.error('Error fetching stats:', error);
-      return null;
-    }
+    if (error) return null;
 
-    const totalCities = cities.length;
-    const avgSafetyScore = cities.reduce((sum, c) => sum + c.safetyScore, 0) / totalCities;
-    const highSafety = cities.filter((c) => c.safetyScore >= 80).length;
-    const moderateSafety = cities.filter((c) => c.safetyScore >= 70 && c.safetyScore < 80).length;
-    const lowSafety = cities.filter((c) => c.safetyScore < 70).length;
-    const uniqueStates = new Set(cities.map((c) => c.state)).size;
+    const totalCities = data.length;
+    const avgSafetyScore =
+      data.reduce((sum, c) => sum + c.safety_score, 0) / totalCities;
 
     return {
       totalCities,
       avgSafetyScore: Math.round(avgSafetyScore),
-      highSafety,
-      moderateSafety,
-      lowSafety,
-      uniqueStates
+      highSafety: data.filter((c) => c.safety_score >= 80).length,
+      moderateSafety: data.filter((c) => c.safety_score >= 70 && c.safety_score < 80).length,
+      lowSafety: data.filter((c) => c.safety_score < 70).length,
+      uniqueStates: new Set(data.map((c) => c.state)).size
     };
   },
 
-  // Get top safe cities
-  async getTopSafeCities(limit: number = 10): Promise<City[]> {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Using local data.');
-      return [];
-    }
+  async getTopSafeCities(limit = 10): Promise<City[]> {
+    if (!isSupabaseConfigured) return [];
 
     const { data, error } = await supabase
       .from('cities')
       .select('*')
-      .order('safetyScore', { ascending: false })
+      .order('safety_score', { ascending: false })
       .limit(limit);
 
-    if (error) {
-      console.error('Error fetching top cities:', error);
-      return [];
-    }
-
+    if (error) return [];
     return data || [];
   }
 };
 
-// Real-time subscriptions
+// ---------- REAL-TIME SUBSCRIPTIONS ----------
 export const subscriptions = {
-  // Subscribe to incident reports
   subscribeToReports(callback: (report: IncidentReport) => void) {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Real-time subscriptions disabled.');
-      return { unsubscribe: () => {} };
-    }
+    if (!isSupabaseConfigured) return { unsubscribe: () => {} };
 
     return supabase
       .channel('incident_reports')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'incident_reports'
-        },
-        (payload) => {
-          callback(payload.new as IncidentReport);
-        }
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'incident_reports' }, (payload) =>
+        callback(payload.new as IncidentReport)
       )
       .subscribe();
   },
 
-  // Subscribe to city updates
   subscribeToCityUpdates(callback: (city: City) => void) {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase not configured. Real-time subscriptions disabled.');
-      return { unsubscribe: () => {} };
-    }
+    if (!isSupabaseConfigured) return { unsubscribe: () => {} };
 
     return supabase
       .channel('cities')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'cities'
-        },
-        (payload) => {
-          callback(payload.new as City);
-        }
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cities' }, (payload) =>
+        callback(payload.new as City)
       )
       .subscribe();
   }
